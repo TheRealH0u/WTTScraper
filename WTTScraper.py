@@ -27,7 +27,7 @@ class WTTScrapper:
             '14:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00', 
             '17:30', '18:00', '18:30', '19:00', '19:30', '20:00', '20:30', "21:00"
         ]
-        self.json_data = None
+        self.calendar = None
     def process_class_data(self, string, zacetek):
         array = string[2:-3].split("\n")
         data = {}
@@ -48,7 +48,9 @@ class WTTScrapper:
             input("Error array not len() of 4. Press enter to exit")
             exit(0)
     
-    def get_calendar(self, datum=None):
+    def parse_calendar(self, datum=None):
+        request_timeout = 50
+
         if datum is not None:
             try:
                 datetime.strptime(datum, '%d.%m.%Y')
@@ -59,7 +61,7 @@ class WTTScrapper:
         
         print(datum)
         
-        self.json_data = {
+        self.calendar = {
             "Ponedeljek": [], 
             "Torek": [], 
             "Sreda": [], 
@@ -69,8 +71,8 @@ class WTTScrapper:
 
         session = requests.Session()
 
-        response = session.get(self.url, allow_redirects=True)
-
+        response = session.get(self.url, allow_redirects=True, timeout=request_timeout)
+        print(response.status_code)
         cookie = response.cookies.get('JSESSIONID')
         soup = BeautifulSoup(response.text, 'lxml')
         javax = soup.find('input', {'name': 'javax.faces.ViewState'})['value']
@@ -184,8 +186,10 @@ class WTTScrapper:
             "javax.faces.ViewState": f"{javax}"
         }
 
-        session.post(url, headers=headers, data=payload1)
-        response = session.post(url, headers=headers, data=payload2)
+        response = session.post(url, headers=headers, data=payload1, timeout=request_timeout)
+        print(response.status_code)
+        response = session.post(url, headers=headers, data=payload2, timeout=request_timeout)
+        print(response.status_code)
 
         response_raw = response.text
 
@@ -208,7 +212,7 @@ class WTTScrapper:
                     if style.strip() == "cursor: zoom-in;}":
                         if len(title_value) > 2:
                             data = self.process_class_data(title_value, self.ure[ura])
-                            self.json_data[self.dnevi[dan]].append(data)
+                            self.calendar[self.dnevi[dan]].append(data)
                             try:
                                 previous[split] = data
                             except:
@@ -232,7 +236,29 @@ class WTTScrapper:
                     # print("Ura:", ure[ura])
                     # print("Split:", split)
                     # print("Previous:", previous)
-                    # print(json_data)
+                    # print(calendar)
                     # input()
                     # os.system("clear")
-        return self.json_data
+        return self.calendar
+    
+    def filter_calendar(self, filter):
+        """
+        filter: dict
+        Ex: {"razredi": ["predmet1", "predmet2"], 'profesor': 'prof', 'zacetek': '07:00'}
+        """
+        output = self.calendar
+        for dnevi in output.keys():
+            for ura in range(0, len(output[dnevi]), 1):
+                for filter_key, filter_value in filter.items():
+                    if isinstance(filter_value, list):
+                        if not any(fv in output[dnevi][ura][filter_key] for fv in filter_value):
+                            output[dnevi][ura] = {}
+                    else:
+                        if len(output[dnevi][ura]) != 0 and filter_value != output[dnevi][ura][filter_key]:
+                            output[dnevi][ura] = {}
+        for i in self.dnevi:
+            output[i] = [entry for entry in output[i] if entry]
+        return output
+
+    def get_calendar(self):
+        return self.calendar
